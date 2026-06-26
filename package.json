@@ -1,0 +1,29 @@
+{
+  "name": "com.vrchat.led-matrix-shader",
+  "version": "1.0.0",
+  "displayName": "LED Matrix Shader",
+  "description": "Built-in pipeline LED dot-matrix screen shader for VRChat. Features configurable grid resolution, LED shape (circle/square), glow effect with Gaussian falloff, and customizable colors.",
+  "unity": "2019.4",
+  "documentationUrl": "https://github.com/your-repo/led-matrix-shader",
+  "licensesUrl": "https://opensource.org/licenses/MIT",
+  "keywords": [
+    "vrchat",
+    "shader",
+    "led",
+    "dot-matrix",
+    "built-in"
+  ],
+  "author": {
+    "name": "Your Name",
+    "url": "https://github.com/your-repo"
+  },
+  "vpmDependencies": {},
+  "samples": [
+    {
+      "displayName": "Demo Scene",
+      "description": "LED matrix demo scene with preset materials",
+      "path": "Scenes/Demo"
+    }
+  ],
+  "hideInEditor": false
+}
