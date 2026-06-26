@@ -18,12 +18,5 @@
     "url": "https://github.com/zeR0Tsu"
   },
   "vpmDependencies": {},
-  "samples": [
-    {
-      "displayName": "Demo Scene",
-      "description": "LED matrix demo scene with preset materials",
-      "path": "Scenes/Demo"
-    }
-  ],
   "hideInEditor": false
 }
