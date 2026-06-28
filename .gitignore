@@ -48,6 +48,10 @@ Desktop.ini
 # Unity Meta Files
 *.meta
 
+# VPM build output
+dist/
+*.zip
+
 # Test folder
 测试/
 
