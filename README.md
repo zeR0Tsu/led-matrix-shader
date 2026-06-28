@@ -24,7 +24,7 @@ LED点阵材质/
 ## 快速使用
 
 1. 创建一个 **Quad**（或任意平面模型）
-2. 新建材质，Shader 选择 **VRChat → LEDMatrix**
+2. 新建材质，Shader 选择 **zeR0Tsu → LEDMatrix**
 3. 把材质拖到模型上
 4. 在材质 Inspector 中配置参数
 

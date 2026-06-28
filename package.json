@@ -1,5 +1,5 @@
 {
-  "name": "com.vrchat.led-matrix-shader",
+  "name": "com.zer0tsu.led-matrix-shader",
   "version": "1.0.0",
   "displayName": "LED Matrix Shader",
   "description": "Built-in pipeline LED dot-matrix screen shader for VRChat. Features configurable grid resolution, LED shape (circle/square), glow effect with Gaussian falloff, and customizable colors.",

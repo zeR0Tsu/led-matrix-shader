@@ -1,6 +1,6 @@
 # LED Matrix Shader - VPM 打包脚本
 $version = "1.0.0"
-$name = "com.vrchat.led-matrix-shader"
+$name = "com.zer0tsu.led-matrix-shader"
 $zipName = "$name-$version.zip"
 $distDir = ".\dist"
 

@@ -1,4 +1,4 @@
-Shader "VRChat/LEDMatrix"
+Shader "zeR0Tsu/LEDMatrix"
 {
     Properties
     {
