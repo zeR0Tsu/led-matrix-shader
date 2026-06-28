@@ -48,5 +48,8 @@ Desktop.ini
 # Unity Meta Files
 *.meta
 
+# Test folder
+测试/
+
 # VRChat SDK
 [Pp]ackages/com.vrchat*
