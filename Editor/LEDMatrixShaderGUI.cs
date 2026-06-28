@@ -3,18 +3,23 @@ using UnityEngine;
 
 /// <summary>
 /// Custom material inspector for VRChat/LEDMatrix shader.
-/// Provides grouped layout, shape dropdown, and quick presets.
+/// Provides foldable grouped layout, shape dropdown, and quick presets.
 /// </summary>
 public class LEDMatrixShaderGUI : ShaderGUI
 {
     // ── Cached material properties ────────────────────────────
     private MaterialProperty _mainTex;
+    private MaterialProperty _imageTiling;
+    private MaterialProperty _imageOffset;
+    private MaterialProperty _imageRotation;
     private MaterialProperty _gridResolution;
+    private MaterialProperty _matrixScale;
     private MaterialProperty _ledSize;
     private MaterialProperty _circleShape;
     private MaterialProperty _squareShape;
     private MaterialProperty _bgColor;
     private MaterialProperty _offColor;
+    private MaterialProperty _ledColor;
     private MaterialProperty _onThreshold;
     private MaterialProperty _glowEnabled;
     private MaterialProperty _glowIntensity;
@@ -23,101 +28,118 @@ public class LEDMatrixShaderGUI : ShaderGUI
     private MaterialProperty _clipThreshold;
 
     private MaterialEditor _editor;
-    private Material _material;
 
-    // ── Preset definitions ────────────────────────────────────
-    private static readonly Preset[] Presets = new[]
-    {
-        new Preset("经典点阵", 32,  0.7f,  true, 1.5f, 0.25f),
-        new Preset("高密度屏", 64,  0.85f, true, 1.0f, 0.10f),
-        new Preset("复古霓虹", 16,  0.55f, true, 2.5f, 0.35f),
-        new Preset("无辉光",   32,  0.7f,  false,0f,   0f),
-    };
-
-    private struct Preset
-    {
-        public string name;
-        public float resolution;
-        public float ledSize;
-        public bool glowOn;
-        public float glowIntensity;
-        public float glowRadius;
-
-        public Preset(string name, float res, float size, bool glow, float intensity, float radius)
-        {
-            this.name = name;
-            this.resolution = res;
-            this.ledSize = size;
-            this.glowOn = glow;
-            this.glowIntensity = intensity;
-            this.glowRadius = radius;
-        }
-    }
+    // ── Foldout states (persisted via EditorPrefs) ────────────
+    private static bool FoldoutTexture = true;
+    private static bool FoldoutGrid    = true;
+    private static bool FoldoutColor   = true;
+    private static bool FoldoutGlow    = true;
+    private static bool FoldoutAlpha   = false;
 
     // ── Entry point ───────────────────────────────────────────
     public override void OnGUI(MaterialEditor materialEditor, MaterialProperty[] properties)
     {
         _editor = materialEditor;
-        _material = materialEditor.target as Material;
-
         CacheProperties(properties);
 
-        // ── Preset buttons ────────────────────────────────────
-        EditorGUILayout.Space(4);
-        EditorGUILayout.LabelField("快速预设", EditorStyles.boldLabel);
-        EditorGUILayout.BeginHorizontal();
-        foreach (var preset in Presets)
+        // ── Foldout sections ──────────────────────────────────
+        // ═══════════════════════════════════════════════════════
+        //  Section: Texture
+        // ═══════════════════════════════════════════════════════
+        FoldoutTexture = DrawFoldoutHeader("📷 贴图 (Texture)", FoldoutTexture);
+        if (FoldoutTexture)
         {
-            if (GUILayout.Button(preset.name, GUILayout.Height(28)))
+            EditorGUI.indentLevel++;
+            _editor.TexturePropertySingleLine(new GUIContent("Source Image"), _mainTex);
+            _editor.TextureScaleOffsetProperty(_mainTex);
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField("图片变换 (Image Transform)", EditorStyles.miniBoldLabel);
+            _editor.ShaderProperty(_imageTiling,  "缩放 (Tiling)");
+            _editor.ShaderProperty(_imageOffset,  "偏移 (Offset)");
+            _editor.ShaderProperty(_imageRotation,"旋转 (Rotation)");
+            EditorGUI.indentLevel--;
+        }
+        EditorGUILayout.Space(4);
+
+        // ═══════════════════════════════════════════════════════
+        //  Section: 点阵网格
+        // ═══════════════════════════════════════════════════════
+        FoldoutGrid = DrawFoldoutHeader("🔲 点阵网格 (Grid)", FoldoutGrid);
+        if (FoldoutGrid)
+        {
+            EditorGUI.indentLevel++;
+            _editor.ShaderProperty(_gridResolution, "分辨率 (Resolution)");
+            _editor.ShaderProperty(_matrixScale,    "区域大小 (Matrix Scale)");
+            _editor.ShaderProperty(_ledSize,        "占空比 (LED Size)");
+            DrawShapeDropdown();
+            EditorGUI.indentLevel--;
+        }
+        EditorGUILayout.Space(4);
+
+        // ═══════════════════════════════════════════════════════
+        //  Section: 颜色
+        // ═══════════════════════════════════════════════════════
+        FoldoutColor = DrawFoldoutHeader("🎨 颜色 (Colors)", FoldoutColor);
+        if (FoldoutColor)
+        {
+            EditorGUI.indentLevel++;
+            _editor.ShaderProperty(_bgColor,     "背景色 (Background)");
+            _editor.ShaderProperty(_offColor,    "灭灯颜色 (Off LED)");
+            _editor.ShaderProperty(_ledColor,    "灯点颜色 (LED Color)");
+            _editor.ShaderProperty(_onThreshold, "点亮阈值 (Threshold)");
+            EditorGUI.indentLevel--;
+        }
+        EditorGUILayout.Space(4);
+
+        // ═══════════════════════════════════════════════════════
+        //  Section: 辉光
+        // ═══════════════════════════════════════════════════════
+        FoldoutGlow = DrawFoldoutHeader("✨ 辉光 (Glow)", FoldoutGlow);
+        if (FoldoutGlow)
+        {
+            EditorGUI.indentLevel++;
+            _editor.ShaderProperty(_glowEnabled, "启用辉光");
+            if (_glowEnabled.floatValue > 0.5f)
             {
-                ApplyPreset(preset);
+                _editor.ShaderProperty(_glowIntensity, "强度 (Intensity)");
+                _editor.ShaderProperty(_glowRadius,    "半径 (Radius)");
             }
-        }
-        EditorGUILayout.EndHorizontal();
-        EditorGUILayout.Space(8);
-
-        // ── Section: 贴图 ─────────────────────────────────────
-        DrawSectionHeader("📷 源贴图");
-        _editor.TexturePropertySingleLine(new GUIContent("Source Image"), _mainTex);
-        EditorGUILayout.Space(6);
-
-        // ── Section: 网格 / LED 形状 ──────────────────────────
-        DrawSectionHeader("🔲 LED 网格");
-        _editor.ShaderProperty(_gridResolution, "分辨率 (Grid Resolution)");
-        _editor.ShaderProperty(_ledSize, "LED 占空比 (Size)");
-        DrawShapeDropdown();
-        EditorGUILayout.Space(6);
-
-        // ── Section: 颜色 ─────────────────────────────────────
-        DrawSectionHeader("🎨 颜色");
-        _editor.ShaderProperty(_bgColor, "背景色 (Background)");
-        _editor.ShaderProperty(_offColor, "灭灯颜色 (Off LED)");
-        _editor.ShaderProperty(_onThreshold, "点亮阈值 (On Threshold)");
-        EditorGUILayout.Space(6);
-
-        // ── Section: 辉光 ─────────────────────────────────────
-        DrawSectionHeader("✨ 辉光 (Glow)");
-        _editor.ShaderProperty(_glowEnabled, "启用辉光");
-        if (_glowEnabled.floatValue > 0.5f)
-        {
-            EditorGUI.indentLevel++;
-            _editor.ShaderProperty(_glowIntensity, "辉光强度 (Intensity)");
-            _editor.ShaderProperty(_glowRadius, "辉光半径 (Radius)");
             EditorGUI.indentLevel--;
         }
-        EditorGUILayout.Space(6);
+        EditorGUILayout.Space(4);
 
-        // ── Section: Alpha Clip ───────────────────────────────
-        DrawSectionHeader("✂️ Alpha Clip");
-        _editor.ShaderProperty(_clip, "启用 Alpha Clip");
-        if (_clip.floatValue > 0.5f)
+        // ═══════════════════════════════════════════════════════
+        //  Section: Alpha
+        // ═══════════════════════════════════════════════════════
+        FoldoutAlpha = DrawFoldoutHeader("✂️ Alpha Clip", FoldoutAlpha);
+        if (FoldoutAlpha)
         {
             EditorGUI.indentLevel++;
-            _editor.ShaderProperty(_clipThreshold, "裁剪阈值 (Threshold)");
+            _editor.ShaderProperty(_clip, "启用 Alpha Clip");
+            if (_clip.floatValue > 0.5f)
+            {
+                _editor.ShaderProperty(_clipThreshold, "裁剪阈值 (Threshold)");
+            }
             EditorGUI.indentLevel--;
         }
 
         EditorGUILayout.Space(4);
+    }
+
+    // ── Foldout header with horizontal rule ───────────────────
+    private static bool DrawFoldoutHeader(string label, bool folded)
+    {
+        EditorGUILayout.Space(2);
+        var style = new GUIStyle(EditorStyles.foldout)
+        {
+            fontStyle = FontStyle.Bold,
+            fontSize  = 12,
+        };
+        folded = EditorGUILayout.Foldout(folded, label, true, style);
+        Rect r = EditorGUILayout.GetControlRect(false, 1);
+        EditorGUI.DrawRect(r, new Color(0.3f, 0.3f, 0.3f));
+        EditorGUILayout.Space(2);
+        return folded;
     }
 
     // ── Helpers ───────────────────────────────────────────────
@@ -125,12 +147,17 @@ public class LEDMatrixShaderGUI : ShaderGUI
     private void CacheProperties(MaterialProperty[] props)
     {
         _mainTex        = FindProperty("_MainTex",        props);
+        _imageTiling    = FindProperty("_ImageTiling",    props);
+        _imageOffset    = FindProperty("_ImageOffset",    props);
+        _imageRotation  = FindProperty("_ImageRotation",  props);
         _gridResolution = FindProperty("_GridResolution", props);
+        _matrixScale    = FindProperty("_MatrixScale",    props);
         _ledSize        = FindProperty("_LEDSize",        props);
         _circleShape    = FindProperty("_CircleShape",    props);
         _squareShape    = FindProperty("_SquareShape",    props);
         _bgColor        = FindProperty("_BgColor",        props);
         _offColor       = FindProperty("_OffColor",       props);
+        _ledColor       = FindProperty("_LEDColor",       props);
         _onThreshold    = FindProperty("_OnThreshold",    props);
         _glowEnabled    = FindProperty("_GlowEnabled",    props);
         _glowIntensity  = FindProperty("_GlowIntensity",  props);
@@ -139,28 +166,19 @@ public class LEDMatrixShaderGUI : ShaderGUI
         _clipThreshold  = FindProperty("_ClipThreshold",  props);
     }
 
-    private void DrawSectionHeader(string label)
-    {
-        EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
-        Rect r = EditorGUILayout.GetControlRect(false, 1);
-        EditorGUI.DrawRect(r, new Color(0.35f, 0.35f, 0.35f));
-        EditorGUILayout.Space(3);
-    }
-
     private void DrawShapeDropdown()
     {
-        // Determine current shape (circle takes priority if both on)
         int currentShape = _circleShape.floatValue > 0.5f ? 0 :
                            _squareShape.floatValue > 0.5f ? 1 : 0;
 
         EditorGUI.BeginChangeCheck();
-        int newShape = EditorGUILayout.Popup("LED 形状 (Shape)", currentShape, new[] { "⚫ 圆形 (Circle)", "⬜ 方形 (Square)" });
+        int newShape = EditorGUILayout.Popup("LED 形状", currentShape,
+            new[] { "⚫ 圆形 (Circle)", "⬜ 方形 (Square)" });
         if (EditorGUI.EndChangeCheck())
         {
             _circleShape.floatValue = (newShape == 0) ? 1f : 0f;
             _squareShape.floatValue = (newShape == 1) ? 1f : 0f;
 
-            // Sync keywords
             foreach (var obj in _editor.targets)
             {
                 var mat = obj as Material;
@@ -179,30 +197,5 @@ public class LEDMatrixShaderGUI : ShaderGUI
         }
     }
 
-    private void ApplyPreset(Preset preset)
-    {
-        Undo.RecordObjects(_editor.targets, "Apply LED Matrix Preset");
-
-        _gridResolution.floatValue = preset.resolution;
-        _ledSize.floatValue        = preset.ledSize;
-        _glowEnabled.floatValue    = preset.glowOn ? 1f : 0f;
-        _glowIntensity.floatValue  = preset.glowIntensity;
-        _glowRadius.floatValue     = preset.glowRadius;
-
-        foreach (var obj in _editor.targets)
-        {
-            var mat = obj as Material;
-            if (mat == null) continue;
-            mat.SetFloat("_GridResolution", preset.resolution);
-            mat.SetFloat("_LEDSize",        preset.ledSize);
-            mat.SetFloat("_GlowEnabled",    preset.glowOn ? 1f : 0f);
-            mat.SetFloat("_GlowIntensity",  preset.glowIntensity);
-            mat.SetFloat("_GlowRadius",     preset.glowRadius);
-
-            if (preset.glowOn)
-                mat.EnableKeyword("_GLOW_ON");
-            else
-                mat.DisableKeyword("_GLOW_ON");
-        }
-    }
 }
+

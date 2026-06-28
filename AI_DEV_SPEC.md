@@ -3,7 +3,7 @@
 > **Project**: Unity Built-in HLSL Shader for VRChat (Avatar + World)
 > **Target Pipeline**: Built-in Render Pipeline
 > **Shader Language**: HLSL (Unity CG)
-> **Current Progress**: 核心着色器 v1 已完成
+> **Current Progress**: v1.1 — 核心功能 + 自定义 GUI 完成
 
 ---
 
@@ -15,20 +15,24 @@ A Unity shader that displays an imported image on an LED dot-matrix screen with 
 |---|---------|--------|
 | 1 | UV-based grid subdivision | ✅ Done |
 | 2 | Configurable grid resolution | ✅ Done |
-| 3 | Configurable LED shape (circle/square) | ✅ Done |
+| 3 | Configurable LED shape (circle/square dropdown) | ✅ Done |
 | 4 | Configurable LED size / duty cycle | ✅ Done |
-| 5 | Sample image at cell center (nearest-neighbor style) | ✅ Done |
+| 5 | Sample image at cell center (nearest-neighbor) | ✅ Done |
 | 6 | Configurable background color | ✅ Done |
 | 7 | Configurable off-LED color | ✅ Done |
-| 8 | On-threshold (luminance-based) | ✅ Done |
-| 9 | Gaussian glow spilling into gaps (not inside LED) | ✅ Done |
-| 10 | Configurable glow intensity & radius | ✅ Done |
-| 11 | Hybrid glow (built-in + Bloom compatible output) | ✅ Done |
-| 12 | Custom Material Inspector GUI | ❌ Not started |
-| 13 | Demo scene | ❌ Not started |
-| 14 | Pre-configured materials | ❌ Not started |
-| 15 | Sample textures | ❌ Not started |
-| 16 | Mobile performance optimization pass | ❌ Not started |
+| 8 | On-threshold (luminance-based, post-tint) | ✅ Done |
+| 9 | Cross-cell Gaussian glow with neighbor blending | ✅ Done |
+| 10 | Configurable glow intensity & radius (0~2.0) | ✅ Done |
+| 11 | One-minus-product glow blending (soft saturation) | ✅ Done |
+| 12 | Custom Material Inspector GUI (foldable sections) | ✅ Done |
+| 13 | Matrix scale (dot-matrix area on panel) | ✅ Done |
+| 14 | Independent image transform (scale/offset/rotation) | ✅ Done |
+| 15 | LED color tint | ✅ Done |
+| 16 | TRANSFORM_TEX + Image Transform dual pipeline | ✅ Done |
+| 17 | Demo scene | ❌ Not started |
+| 18 | Pre-configured materials | ❌ Not started |
+| 19 | Sample textures | ❌ Not started |
+| 20 | Mobile performance optimization pass | ❌ Not started |
 
 ---
 
@@ -39,57 +43,81 @@ A Unity shader that displays an imported image on an LED dot-matrix screen with 
 - **Grid logic**: UV coordinate subdivision into virtual cells; each cell = one LED
 - **No geometry dependency**: Works on any mesh (Quad, plane, etc.)
 
-### 2.2 Per-Fragment Algorithm
+### 2.2 Per-Fragment Algorithm (v1.1)
 
 ```
 For each fragment:
-  1. Compute cell index: floor(uv * GridResolution)
+  0. Map UV to matrix area: matrixUV = (uv - 0.5) / MatrixScale + 0.5
+  1. Compute cell index: floor(matrixUV * GridResolution)
   2. Compute cell center UV: (cellIndex + 0.5) / GridResolution
-  3. Sample _MainTex at cell center → ledColor
-  4. Compute distance from fragment to cell center (in cell-space)
+  3. Apply image-only transform to cellCenter → sampleUV
+  4. Sample _MainTex at sampleUV → ledColor
+  5. Compute distance from fragment to cell center (in cell-space)
      - If CIRCLE:   length(delta)
      - If SQUARE:   max(abs(delta.x), abs(delta.y))
-  5. Compute luminance of ledColor
-  6. Determine if LED is "on": luminance > _OnThreshold
-  7. Determine region:
+  6. Apply LED tint: tintedColor = ledColor.rgb * _LEDColor.rgb
+  7. Compute luminance of tintedColor
+  8. Determine if LED is "on": luminance > _OnThreshold
+  9. Determine region:
      - distance < ledHalfSize  → LED body (opaque)
-     - distance < ledHalfSize + glowRadius → Glow zone (Gaussian falloff)
-     - else → Background
-  8. Assign color per region:
-     - LED body:     on ? ledColor : _OffColor
-     - Glow zone:    on ? ledColor*gaussian : _OffColor*gaussian, alpha = gaussian
-     - Background:   _BgColor
+     - else → Glow/Background zone
+  10. LED body: on ? tintedColor : _OffColor
+  11. Glow zone: search 3x3 neighbor cells, accumulate via one-minus-product, square-weighted color blend
+  12. Background: _BgColor
 ```
 
-### 2.3 Glow Model
+### 2.3 Glow Model (v1.1)
 - **Type**: Gaussian falloff `exp(-d² / 2σ²)` where `d = distance - ledHalfSize`
 - **Sigma**: `glowRadius × 0.35`
-- **Modulation**: glowFactor = saturate(gaussian × glowIntensity)
-- **Alpha**: glowFactor in glow zone, 1.0 in LED body, 1.0 for background
-- **Bloom compatibility**: Bright color output naturally works with scene Bloom post-processing
+- **Neighborhood**: Scans 3×3 neighbor cells for lit LEDs (cross-cell glow)
+- **Intensity blending**: one-minus-product `combined = 1 - ∏(1 - g_i)` — soft saturation
+- **Color blending**: Square-weighted `Σ(color_i × g_i²) / Σ(g_i²)` — closer LEDs dominate
+- **Rendering**: Fully opaque, glow blends between `_BgColor` and LED color
+- **Range**: `_GlowRadius` 0 ~ 2.0 cell units
 
-### 2.4 On/Off Threshold
+### 2.4 On/Off Threshold (v1.1)
 - Uses standard luminance: `0.299R + 0.587G + 0.114B`
-- If luminance > `_OnThreshold` → LED shows image color
+- Luminance computed AFTER `_LEDColor` tint is applied
+- If luminance > `_OnThreshold` → LED shows tinted image color
 - If luminance ≤ `_OnThreshold` → LED shows `_OffColor`
+
+### 2.5 UV Transform Pipeline (v1.1)
+```
+Original UV
+    │
+    ├─→ TRANSFORM_TEX (_MainTex_ST Tiling/Offset)  ← 网格+图片整体缩放
+    │       │
+    │       └─→ Matrix Scale remap                 ← 面板上点阵显示区域
+    │               │
+    │               └─→ Grid computation            ← 网格定位
+    │
+    └─→ TransformImageUV (Tiling→Rotate→Offset)    ← 仅图片采样坐标
+            │
+            └─→ tex2D(_MainTex, sampleUV)           ← 图片颜色
+```
 
 ---
 
-## 3. Shader Properties Reference
+## 3. Shader Properties Reference (v1.1)
 
 | Property Name | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `_MainTex` | 2D | white | - | Source image |
+| `_MainTex` | 2D | white | - | Source image (built-in Tiling/Offset via TRANSFORM_TEX) |
+| `_ImageTiling` | Vector | (1,1,0,0) | - | Image-only scale (does not affect grid) |
+| `_ImageOffset` | Vector | (0,0,0,0) | - | Image-only offset |
+| `_ImageRotation` | Range | 0 | [-180, 180] | Image-only rotation (degrees) |
 | `_GridResolution` | Float | 32 | [1, ∞) | LED grid density |
-| `_LEDSize` | Range | 0.7 | [0, 1] | LED duty cycle (0=point, 1=full cell) |
-| `_CircleShape` | Toggle | 1 | 0/1 | Use circle LED shape |
-| `_SquareShape` | Toggle | 0 | 0/1 | Use square LED shape |
+| `_MatrixScale` | Range | 1.0 | [0.1, 2.0] | Dot-matrix display area on panel |
+| `_LEDSize` | Range | 0.7 | [0, 1] | LED duty cycle |
+| `_CircleShape` | Toggle | 1 | 0/1 | Circle LED (managed by shape dropdown) |
+| `_SquareShape` | Toggle | 0 | 0/1 | Square LED (managed by shape dropdown) |
 | `_BgColor` | Color | (0.02,0.02,0.02,1) | - | Panel background color |
 | `_OffColor` | Color | (0.12,0.12,0.12,1) | - | LED off-state color |
-| `_OnThreshold` | Range | 0.05 | [0, 1] | Luminance threshold for on/off |
+| `_LEDColor` | Color | (1,1,1,1) | - | LED on-state color tint (multiplied) |
+| `_OnThreshold` | Range | 0.05 | [0, 1] | Luminance threshold (applied after tint) |
 | `_GlowEnabled` | Toggle | 1 | 0/1 | Enable glow effect |
 | `_GlowIntensity` | Range | 1.5 | [0, 5] | Glow brightness multiplier |
-| `_GlowRadius` | Range | 0.25 | [0, 0.5] | Glow spread distance in cell-space |
+| `_GlowRadius` | Range | 0.25 | [0, 2.0] | Glow spread (can cross cell boundaries) |
 | `_Clip` | Toggle | 0 | 0/1 | Enable alpha clip |
 | `_ClipThreshold` | Range | 0.1 | [0, 1] | Alpha clip cutoff |
 
@@ -103,47 +131,25 @@ For each fragment:
 
 ---
 
-## 4. Rendering State
+## 4. Rendering State (v1.1)
 
 ```
-Queue:    Transparent
-Blend:    SrcAlpha OneMinusSrcAlpha
-ZWrite:   Off
+Queue:    Geometry (Opaque)
+ZWrite:   On
 Cull:     Off
 Lighting: Off
 ```
+
+Panel is fully opaque. Glow via color blending on opaque surface — no alpha transparency.
 
 ---
 
 ## 5. Remaining Work
 
-### 5.1 [P0] Custom Material Inspector GUI
+### 5.1 [✅ DONE] Custom Material Inspector GUI
 **File**: `Editor/LEDMatrixShaderGUI.cs`
 
-Create a custom `ShaderGUI` that provides a more user-friendly material inspector:
-
-- **Shape selector**: Dropdown (Circle / Square) instead of two separate toggles
-- **Section headers**: Group parameters visually
-- **Live preview**: Show a small preview of current LED pattern
-- **Preset buttons**: Quick buttons for "Classic Dot", "High Density", "Retro Neon"
-
-```csharp
-// Expected structure:
-using UnityEditor;
-using UnityEngine;
-
-public class LEDMatrixShaderGUI : ShaderGUI
-{
-    MaterialProperty gridResolution;
-    MaterialProperty ledSize;
-    // ... etc
-    
-    public override void OnGUI(MaterialEditor materialEditor, MaterialProperty[] properties)
-    {
-        // Layout optimized for LED matrix controls
-    }
-}
-```
+Implemented with 5 foldable sections, shape dropdown, and all v1.1 properties exposed.
 
 ### 5.2 [P1] Pre-configured Materials
 **Directory**: `Materials/`
@@ -185,40 +191,31 @@ Potential optimizations for VRChat:
 
 ---
 
-## 6. VRChat Compatibility Notes
+## 6. VRChat Compatibility Notes (v1.1)
 
 - ✅ Built-in pipeline — fully compatible
-- ✅ Transparent queue — works in both World and Avatar
-- ✅ No post-processing dependency — glow is built-in
-- ✅ Bloom compatible — bright alpha output enhances scene Bloom if present
-- ⚠️ Avatar usage: Glow works via alpha blending; Bloom depends on world settings
-- ⚠️ Quest/Android: Test glow performance; consider reducing `_GlowRadius` default
+- ✅ Opaque queue (Geometry) — works in both World and Avatar
+- ✅ No post-processing dependency — glow is built-in via color blending
+- ⚠️ Bloom: Scene Bloom PP will pick up bright LED colors naturally
+- ⚠️ Quest/Android: 9 tex samples/fragment in glow zone (3×3 neighborhood) — test perf
 
 ---
 
 ## 7. File Structure
 
 ```
-f:\dev\shader\LED点阵材质\
-├── AI_DEV_SPEC.md                  ← This file — AI-readable dev spec
+LED点阵材质/
+├── AI_DEV_SPEC.md                  ← AI-readable dev spec
 ├── README.md                       ← User manual
-├── LEDMatrix.shader                ← Core shader (v1 complete)
-├── package.json                    ← UPM package manifest (VCC compatible)
+├── LEDMatrix.shader                ← Core shader (v1.1)
+├── package.json                    ← UPM package manifest
 ├── CHANGELOG.md                    ← Version history
 ├── LICENSE                         ← MIT License
-├── .gitignore                      ← Unity gitignore
-├── Editor\
-│   └── LEDMatrixShaderGUI.cs       ← Custom material inspector [TODO]
-├── Materials\
-│   ├── LEDMatrix_Classic32.mat     ← [TODO]
-│   ├── LEDMatrix_HighDensity64.mat ← [TODO]
-│   ├── LEDMatrix_Retro16.mat       ← [TODO]
-│   └── LEDMatrix_NoGlow.mat        ← [TODO]
-├── Textures\
-│   ├── TestPattern.png             ← [TODO]
-│   └── SampleLogo.png              ← [TODO]
-└── Scenes\
-    └── LEDMatrix_Demo.unity        ← [TODO]
+├── Editor/
+│   └── LEDMatrixShaderGUI.cs       ← Custom material inspector [✅ DONE]
+├── Materials/                      ← [TODO] Pre-configured materials
+├── Textures/                       ← [TODO] Sample textures
+└── Scenes/                         ← [TODO] Demo scene
 ```
 
 ---
@@ -226,14 +223,15 @@ f:\dev\shader\LED点阵材质\
 ## 8. Development Progress Summary
 
 ```
-▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░  78%  Complete
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░  90%  Complete
                        
 Core Shader Logic      ▓▓▓▓▓▓▓▓▓▓  100%
 Glow Effect            ▓▓▓▓▓▓▓▓▓▓  100%
 Shape Switching        ▓▓▓▓▓▓▓▓▓▓  100%
 Color Customization    ▓▓▓▓▓▓▓▓▓▓  100%
+Image Transform        ▓▓▓▓▓▓▓▓▓▓  100%
+Material GUI           ▓▓▓▓▓▓▓▓▓▓  100%
 ───────────────        
-Material GUI           ░░░░░░░░░░░   0%
 Sample Materials       ░░░░░░░░░░░   0%
 Sample Textures        ░░░░░░░░░░░   0%
 Demo Scene             ░░░░░░░░░░░   0%
@@ -242,5 +240,5 @@ Performance Opt.       ░░░░░░░░░░░   0%
 
 ---
 
-*Generated from design review (grillme session) — 2026-06-26*
-*Last spec update: v1.0*
+*Generated from design review — 2026-06-26*
+*Last spec update: v1.1 — 2026-06-27*

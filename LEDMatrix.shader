@@ -2,38 +2,46 @@ Shader "VRChat/LEDMatrix"
 {
     Properties
     {
+        [Header(Texture)]
         _MainTex ("Source Image", 2D) = "white" {}
-        [Space]
+        _ImageTiling ("Image Tiling", Vector) = (1, 1, 0, 0)
+        _ImageOffset ("Image Offset", Vector) = (0, 0, 0, 0)
+        _ImageRotation ("Image Rotation", Range(-180, 180)) = 0
+
+        [Header(Grid)]
         _GridResolution ("Grid Resolution", Float) = 32
-        _LEDSize ("LED Size (占空比)", Range(0.0, 1.0)) = 0.7
-        [Space]
-        [Toggle(_CIRCLE_SHAPE)] _CircleShape ("圆形 LED", Float) = 1
-        [Toggle(_SQUARE_SHAPE)] _SquareShape ("方形 LED", Float) = 0
-        [Space]
-        _BgColor ("背景色 (Background)", Color) = (0.02, 0.02, 0.02, 1)
-        _OffColor ("灭灯颜色 (Off LED)", Color) = (0.12, 0.12, 0.12, 1)
-        _OnThreshold ("点亮阈值", Range(0.0, 1.0)) = 0.05
-        [Space]
-        [Toggle(_GLOW_ON)] _GlowEnabled ("启用辉光", Float) = 1
-        _GlowIntensity ("辉光强度", Range(0.0, 5.0)) = 1.5
-        _GlowRadius ("辉光半径", Range(0.0, 0.5)) = 0.25
-        [Space]
+        _MatrixScale ("Matrix Scale", Range(0.1, 2.0)) = 1.0
+        _LEDSize ("LED Size", Range(0.0, 1.0)) = 0.7
+        [Toggle(_CIRCLE_SHAPE)] _CircleShape ("Circle LED", Float) = 1
+        [Toggle(_SQUARE_SHAPE)] _SquareShape ("Square LED", Float) = 0
+
+        [Header(Colors)]
+        _BgColor ("Background Color", Color) = (0.02, 0.02, 0.02, 1)
+        _OffColor ("Off LED Color", Color) = (0.12, 0.12, 0.12, 1)
+        _LEDColor ("LED Color", Color) = (1, 1, 1, 1)
+        _OnThreshold ("On Threshold", Range(0.0, 1.0)) = 0.05
+
+        [Header(Glow)]
+        [Toggle(_GLOW_ON)] _GlowEnabled ("Enable Glow", Float) = 1
+        _GlowIntensity ("Glow Intensity", Range(0.0, 5.0)) = 1.5
+        _GlowRadius ("Glow Radius", Range(0.0, 2.0)) = 0.25
+
+        [Header(Alpha)]
         [Toggle(UNITY_UI_ALPHACLIP)] _Clip ("Alpha Clip", Float) = 0
-        _ClipThreshold ("Alpha Clip Threshold", Range(0.0, 1.0)) = 0.1
+        _ClipThreshold ("Clip Threshold", Range(0.0, 1.0)) = 0.1
     }
 
     SubShader
     {
         Tags
         {
-            "Queue" = "Transparent"
-            "RenderType" = "Transparent"
+            "Queue" = "Geometry"
+            "RenderType" = "Opaque"
             "IgnoreProjector" = "True"
             "PreviewType" = "Plane"
         }
 
-        Blend SrcAlpha OneMinusSrcAlpha
-        ZWrite Off
+        ZWrite On
         Cull Off
         Lighting Off
 
@@ -62,10 +70,15 @@ Shader "VRChat/LEDMatrix"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
+            float2 _ImageTiling;
+            float2 _ImageOffset;
+            float _ImageRotation;
             float _GridResolution;
+            float _MatrixScale;
             float _LEDSize;
             float4 _BgColor;
             float4 _OffColor;
+            float4 _LEDColor;
             float _OnThreshold;
             float _GlowIntensity;
             float _GlowRadius;
@@ -77,6 +90,23 @@ Shader "VRChat/LEDMatrix"
                 o.vertex = UnityObjectToClipPos(v.vertex);
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 return o;
+            }
+
+            // 仅对图片采样坐标做变换：Tiling → Rotation → Offset
+            float2 TransformImageUV(float2 uv)
+            {
+                uv *= _ImageTiling;
+                float rad = radians(_ImageRotation);
+                float s = sin(rad);
+                float c = cos(rad);
+                float2 centered = uv - 0.5;
+                uv = float2(
+                    centered.x * c - centered.y * s,
+                    centered.x * s + centered.y * c
+                );
+                uv += 0.5;
+                uv += _ImageOffset;
+                return uv;
             }
 
             // Luminance helper
@@ -94,17 +124,23 @@ Shader "VRChat/LEDMatrix"
             fixed4 frag(v2f i) : SV_Target
             {
                 float2 uv = i.uv;
+                float scale = max(_MatrixScale, 0.01);
+
+                // --- 0. 将 UV 映射到点阵区域（以面板中心缩放） ---
+                float2 matrixUV = (uv - 0.5) / scale + 0.5;
+
                 float res = max(_GridResolution, 1.0);
 
                 // --- 1. 计算当前像素所在网格单元和单元中心 UV ---
-                float2 cellIndex = floor(uv * res);
+                float2 cellIndex = floor(matrixUV * res);
                 float2 cellCenter = (cellIndex + 0.5) / res;
 
-                // --- 2. 在单元中心采样图片（最近邻风格） ---
-                fixed4 ledColor = tex2D(_MainTex, cellCenter);
+                // --- 2. 在单元中心采样图片（应用图片独立变换，最近邻风格） ---
+                float2 sampleUV = TransformImageUV(cellCenter);
+                fixed4 ledColor = tex2D(_MainTex, sampleUV);
 
                 // --- 3. 计算到单元中心的距离（以网格单元为归一化单位, 0~0.5） ---
-                float2 distToCenterVec = (uv - cellCenter) * res;
+                float2 distToCenterVec = (matrixUV - cellCenter) * res;
 
                 float dist;
 #if _CIRCLE_SHAPE
@@ -119,42 +155,78 @@ Shader "VRChat/LEDMatrix"
                 // LED 的半尺寸（0 ~ 0.5）
                 float ledHalfSize = _LEDSize * 0.5;
 
-                // --- 4. 判断 LED 是否"点亮" ---
-                float luma = Luminance(ledColor.rgb);
+                // --- 4. 判断 LED 是否"点亮"（先应用色调再判断亮度） ---
+                float3 tintedColor = ledColor.rgb * _LEDColor.rgb;
+                float luma = Luminance(tintedColor);
                 bool isOn = luma > _OnThreshold;
 
                 // --- 5. 计算最终颜色 ---
                 float4 finalColor;
-                float alpha = 1.0;
 
                 if (dist <= ledHalfSize)
                 {
                     // ===== LED 灯体内部 =====
-                    finalColor.rgb = isOn ? ledColor.rgb : _OffColor.rgb;
+                    finalColor.rgb = isOn ? tintedColor : _OffColor.rgb;
                     finalColor.a = 1.0;
                 }
                 else
                 {
                     // ===== 灯体外部：辉光或背景 =====
 #if _GLOW_ON
-                    float glowDist = dist - ledHalfSize;
                     float maxGlow = _GlowRadius;
 
-                    if (glowDist < maxGlow)
-                    {
-                        // 高斯衰减
-                        float sigma = maxGlow * 0.35;
-                        float glowFactor = GaussianFalloff(glowDist, sigma);
-                        glowFactor *= _GlowIntensity;
-                        glowFactor = saturate(glowFactor);
+                    // 自然辉光混合：one-minus-product + 平方加权
+                    float combinedGlow = 0.0;
+                    float3 weightedColor = float3(0, 0, 0);
+                    float weightSum = 0.0;
 
-                        float3 glowColor = isOn ? ledColor.rgb : _OffColor.rgb;
-                        finalColor.rgb = glowColor * glowFactor;
-                        finalColor.a = glowFactor;
+                    [unroll]
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        [unroll]
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            float2 neighborIndex = cellIndex + float2(dx, dy);
+                            float2 neighborCenter = (neighborIndex + 0.5) / res;
+                            float2 nSampleUV = TransformImageUV(neighborCenter);
+                            fixed4 nColor = tex2D(_MainTex, nSampleUV);
+                            float3 nTinted = nColor.rgb * _LEDColor.rgb;
+                            if (Luminance(nTinted) > _OnThreshold)
+                            {
+                                float2 toN = (matrixUV - neighborCenter) * res;
+                                float nDist;
+#if _CIRCLE_SHAPE
+                                nDist = length(toN);
+#elif _SQUARE_SHAPE
+                                nDist = max(abs(toN.x), abs(toN.y));
+#else
+                                nDist = length(toN);
+#endif
+                                float glowDist = nDist - ledHalfSize;
+                                if (glowDist < maxGlow)
+                                {
+                                    float sigma = maxGlow * 0.35;
+                                    float g = GaussianFalloff(glowDist, sigma);
+                                    g = saturate(g * _GlowIntensity);
+                                    // one-minus-product：能量守恒软饱和
+                                    combinedGlow = combinedGlow + (1.0 - combinedGlow) * g;
+                                    // 平方加权：近灯颜色主导
+                                    float w = g * g;
+                                    weightedColor += nTinted * w;
+                                    weightSum += w;
+                                }
+                            }
+                        }
+                    }
+
+                    if (combinedGlow > 0.0)
+                    {
+                        float3 glowColor = weightedColor / max(weightSum, 0.001);
+                        finalColor.rgb = lerp(_BgColor.rgb, glowColor, combinedGlow);
+                        finalColor.a = 1.0;
                     }
                     else
                     {
-                        // 超出辉光范围 = 背景
                         finalColor = _BgColor;
                     }
 #else
@@ -175,4 +247,5 @@ Shader "VRChat/LEDMatrix"
     }
 
     Fallback "Unlit/Texture"
+    CustomEditor "LEDMatrixShaderGUI"
 }

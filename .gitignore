@@ -45,5 +45,8 @@ Desktop.ini
 *.orig
 *.meta.bak
 
+# Unity Meta Files
+*.meta
+
 # VRChat SDK
 [Pp]ackages/com.vrchat*
