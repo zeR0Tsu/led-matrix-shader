@@ -1,14 +1,33 @@
-# LED Matrix Shader - VPM 打包脚本
-$version = "1.0.0"
+# LED Matrix Shader - VPM package builder
+# Usage:
+#   .\build_package.ps1              # build with version from package.json
+#   .\build_package.ps1 -Version "1.1.0"  # build with specific version
+# Output: Builds\com.zer0tsu.led-matrix-shader-<version>.zip
+
+param(
+    [string]$Version
+)
+
 $name = "com.zer0tsu.led-matrix-shader"
-$zipName = "$name-$version.zip"
-$distDir = ".\dist"
 
-# 创建 dist 目录
-if (Test-Path $distDir) { Remove-Item $distDir -Recurse -Force }
-New-Item -ItemType Directory -Path $distDir -Force | Out-Null
+# Read version from package.json if not specified
+if (-not $Version) {
+    $pkg = Get-Content ".\package.json" | ConvertFrom-Json
+    $Version = $pkg.version
+}
 
-# 复制必要文件（不含 .meta）
+$zipName = "$name-$Version.zip"
+$buildDir = ".\Builds"
+$stageDir = "$buildDir\_stage_$Version"
+
+# Ensure Builds directory exists
+if (-not (Test-Path $buildDir)) { New-Item -ItemType Directory -Path $buildDir -Force | Out-Null }
+
+# Clean staging directory
+if (Test-Path $stageDir) { Remove-Item $stageDir -Recurse -Force }
+New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+
+# Copy necessary files (no .meta files)
 $items = @(
     "package.json",
     "LEDMatrix.shader",
@@ -24,7 +43,7 @@ $items = @(
 
 foreach ($item in $items) {
     $src = ".\$item"
-    $dst = "$distDir\$item"
+    $dst = "$stageDir\$item"
     if (Test-Path $src) {
         $parent = Split-Path $dst -Parent
         if (!(Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
@@ -36,13 +55,21 @@ foreach ($item in $items) {
     }
 }
 
-# 压缩
-$compressPath = ".\$zipName"
+# Compress to Builds directory
+$compressPath = "$buildDir\$zipName"
 if (Test-Path $compressPath) { Remove-Item $compressPath -Force }
-Compress-Archive -Path "$distDir\*" -DestinationPath $compressPath
+Compress-Archive -Path "$stageDir\*" -DestinationPath $compressPath
 
-# 清理
-Remove-Item $distDir -Recurse -Force
+# Clean staging directory
+Remove-Item $stageDir -Recurse -Force
 
-Write-Host "✅ 打包完成: $zipName"
-Write-Host "请将此 ZIP 上传到 GitHub Release"
+Write-Host "=============================="
+Write-Host " Build complete: $zipName"
+Write-Host " Output: $compressPath"
+Write-Host "=============================="
+Write-Host ""
+Write-Host "Publish steps:"
+Write-Host "  1. Create GitHub Release (tag: v$Version)"
+Write-Host "  2. Upload $zipName as release asset"
+Write-Host "  3. Update docs/index.json with new version entry"
+Write-Host "=============================="

@@ -3,6 +3,33 @@
 ## 文件位置
 - `LEDMatrix.shader` — 主着色器文件
 - 使用时将整个文件夹放入 Unity 项目的 `Assets/` 或 `Packages/` 目录即可
+- 也支持通过 VRChat Creator Companion (VCC) 安装（见下方说明）
+
+## 安装方式
+
+### 方式一：VRChat Creator Companion (VCC) 推荐
+
+1. 打开 **VRChat Creator Companion**
+2. **Settings → Packages → Add Repository**
+3. 输入 VPM 仓库地址：
+   ```
+   https://zeR0Tsu.github.io/led-matrix-shader/index.json
+   ```
+4. 回到项目 → **Manage Project → Add Package**
+5. 找到 **LED Matrix Shader** → 点击 **Add**
+
+### 方式二：Unity Package Manager (Git)
+
+1. 打开 **Window → Package Manager**
+2. 点击 **+ → Add package from git URL...**
+3. 输入：
+   ```
+   https://github.com/zeR0Tsu/led-matrix-shader.git
+   ```
+
+### 方式三：手动复制
+
+直接将 `LED点阵材质/` 文件夹复制到项目的 `Assets/` 或 `Packages/` 目录下。
 
 ## 包目录结构
 
@@ -15,10 +42,15 @@ LED点阵材质/
 ├── .gitignore              ← Unity 专用 git 忽略规则
 ├── README.md               ← 本文件
 ├── AI_DEV_SPEC.md          ← 开发规范文档
-├── Editor/                 ← 编辑器扩展（可选）
+├── build_package.ps1       ← VPM 打包脚本
+├── Editor/                 ← 编辑器扩展
+│   └── LEDMatrixShaderGUI.cs
 ├── Materials/              ← 预设材质
 ├── Textures/               ← 示例贴图
-└── Scenes/                 ← 演示场景
+├── Scenes/                 ← 演示场景
+├── docs/                   ← VPM 仓库清单 (GitHub Pages)
+│   └── index.json
+└── Builds/                 ← 本地打包输出（不上传到 Git）
 ```
 
 ## 快速使用
@@ -30,7 +62,7 @@ LED点阵材质/
 
 ## 材质面板结构
 
-材质 Inspector 使用自定义 GUI，分为 **5 个可折叠面板**：
+材质 Inspector 使用自定义 GUI，分为 **6 个可折叠面板**：
 
 | 面板 | 包含参数 |
 |------|----------|
@@ -39,6 +71,7 @@ LED点阵材质/
 | **🎨 颜色 (Colors)** | 背景色、灭灯色、灯点色、点亮阈值 |
 | **✨ 辉光 (Glow)** | 启用辉光、强度、半径 |
 | **✂️ Alpha Clip** | Alpha Clip 开关、裁剪阈值 |
+| **📜 走马灯 (Marquee)** | 启用走马灯、方向、速度、距离、暂停时长 |
 
 ## 参数说明
 
@@ -79,6 +112,15 @@ LED点阵材质/
 |---|---|
 | **Alpha Clip** | 启用后裁剪半透明区域 |
 | **Clip Threshold** | Alpha 裁剪阈值 |
+
+### 走马灯 (Marquee)
+| 参数 | 说明 |
+|---|---|
+| **启用走马灯** | 开启/关闭图片自动滚动 |
+| **滚动方向** | 下拉选择水平或垂直滚动 |
+| **滚动速度** | 正值=右/上，负值=左/下，0=停止 |
+| **滚动距离** | 每轮滚动的 UV 距离（0.1~5.0） |
+| **暂停时长** | 每轮滚动后暂停秒数，0=连续滚动 |
 
 ## 建议参数
 

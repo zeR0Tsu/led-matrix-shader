@@ -3,7 +3,10 @@
 > **Project**: Unity Built-in HLSL Shader for VRChat (Avatar + World)
 > **Target Pipeline**: Built-in Render Pipeline
 > **Shader Language**: HLSL (Unity CG)
-> **Current Progress**: v1.1 — 核心功能 + 自定义 GUI 完成
+> **Package**: `com.zer0tsu.led-matrix-shader`
+> **Shader Path**: `zeR0Tsu/LEDMatrix`
+> **Unity**: 2019.4+ (tested on 2022.3)
+> **Current Progress**: v1.2 — 核心功能 + 自定义 GUI + VPM 发布 + LED 走马灯
 
 ---
 
@@ -29,10 +32,13 @@ A Unity shader that displays an imported image on an LED dot-matrix screen with 
 | 14 | Independent image transform (scale/offset/rotation) | ✅ Done |
 | 15 | LED color tint | ✅ Done |
 | 16 | TRANSFORM_TEX + Image Transform dual pipeline | ✅ Done |
-| 17 | Demo scene | ❌ Not started |
-| 18 | Pre-configured materials | ❌ Not started |
-| 19 | Sample textures | ❌ Not started |
-| 20 | Mobile performance optimization pass | ❌ Not started |
+| 17 | VPM 仓库清单 + GitHub Pages 发布 | ✅ Done |
+| 18 | 打包脚本 (build_package.ps1) | ✅ Done |
+| 19 | LED 走马灯 (Marquee) | ✅ Done |
+| 20 | Demo scene | ❌ Not started |
+| 21 | Pre-configured materials | ❌ Not started |
+| 22 | Sample textures | ❌ Not started |
+| 23 | Mobile performance optimization pass | ❌ Not started |
 
 ---
 
@@ -43,7 +49,7 @@ A Unity shader that displays an imported image on an LED dot-matrix screen with 
 - **Grid logic**: UV coordinate subdivision into virtual cells; each cell = one LED
 - **No geometry dependency**: Works on any mesh (Quad, plane, etc.)
 
-### 2.2 Per-Fragment Algorithm (v1.1)
+### 2.2 Per-Fragment Algorithm (v1.2)
 
 ```
 For each fragment:
@@ -66,7 +72,7 @@ For each fragment:
   12. Background: _BgColor
 ```
 
-### 2.3 Glow Model (v1.1)
+### 2.3 Glow Model (v1.2)
 - **Type**: Gaussian falloff `exp(-d² / 2σ²)` where `d = distance - ledHalfSize`
 - **Sigma**: `glowRadius × 0.35`
 - **Neighborhood**: Scans 3×3 neighbor cells for lit LEDs (cross-cell glow)
@@ -75,13 +81,13 @@ For each fragment:
 - **Rendering**: Fully opaque, glow blends between `_BgColor` and LED color
 - **Range**: `_GlowRadius` 0 ~ 2.0 cell units
 
-### 2.4 On/Off Threshold (v1.1)
+### 2.4 On/Off Threshold (v1.2)
 - Uses standard luminance: `0.299R + 0.587G + 0.114B`
 - Luminance computed AFTER `_LEDColor` tint is applied
 - If luminance > `_OnThreshold` → LED shows tinted image color
 - If luminance ≤ `_OnThreshold` → LED shows `_OffColor`
 
-### 2.5 UV Transform Pipeline (v1.1)
+### 2.5 UV Transform Pipeline (v1.2)
 ```
 Original UV
     │
@@ -93,12 +99,46 @@ Original UV
     │
     └─→ TransformImageUV (Tiling→Rotate→Offset)    ← 仅图片采样坐标
             │
+            ├─→ [v1.2] + MarqueeScrollOffset       ← 走马灯时间偏移累加
+            │       │   (_MarqueeEnabled && _ScrollSpeed ≠ 0)
+            │       │   距离驱动：每轮滚动 _ScrollDistance UV 后暂停 _PauseDuration 秒
+            │
             └─→ tex2D(_MainTex, sampleUV)           ← 图片颜色
 ```
 
+### 2.6 Marquee / 走马灯算法 (v1.2)
+
+#### 2.6.1 核心逻辑
+- **滚动方式**：仅影响图片采样坐标（`TransformImageUV` 输出后累加偏移），网格位置不动
+- **偏移叠加**：走马灯偏移累加到 `_ImageOffset` 之上，关掉走马灯后手动偏移仍然有效
+- **参照系**：纹理空间（1.0 UV = 一个完整纹理重复周期），不受 `_ImageTiling` 影响
+
+#### 2.6.2 距离驱动循环 (Distance-based + Pause)
+```
+每轮循环：
+  1. 滚动阶段：偏移从 0 线性增加到 _ScrollDistance
+     速度 = |_ScrollSpeed| (UV/秒)
+     方向：_MarqueeDirection 决定轴向（水平/垂直）
+           _ScrollSpeed 正负决定朝向（正=右/上，负=左/下）
+  
+  2. 暂停阶段：偏移保持不变，持续 _PauseDuration 秒
+     _PauseDuration = 0 → 跳过暂停，连续滚动（经典走马灯）
+  
+  3. 复位：偏移归零，重复
+```
+
+#### 2.6.3 启用/禁用规则
+- `_MarqueeEnabled = 0` 或 `_ScrollSpeed = 0` → 走马灯关闭，偏移归零，图片静止在 `_ImageOffset` 位置
+- `_ScrollSpeed > 0` → 向右（水平）/ 向上（垂直）
+- `_ScrollSpeed < 0` → 向左（水平）/ 向下（垂直）
+
+#### 2.6.4 Shader 内的时间计算
+- 使用 `_Time.y` (Unity Shader 内置时间)
+- 累计偏移 = `fmod(progress, _ScrollDistance)` 其中 `progress = |_ScrollSpeed| * time`，`time` 在暂停期间不增长
+
 ---
 
-## 3. Shader Properties Reference (v1.1)
+## 3. Shader Properties Reference (v1.2)
 
 | Property Name | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -120,18 +160,24 @@ Original UV
 | `_GlowRadius` | Range | 0.25 | [0, 2.0] | Glow spread (can cross cell boundaries) |
 | `_Clip` | Toggle | 0 | 0/1 | Enable alpha clip |
 | `_ClipThreshold` | Range | 0.1 | [0, 1] | Alpha clip cutoff |
+| `_MarqueeEnabled` | Toggle | 0 | 0/1 | Enable marquee scroll |
+| `_MarqueeDirection` | Float | 0 | 0/1 | 0=Horizontal, 1=Vertical |
+| `_ScrollSpeed` | Float | 1.0 | [-10, 10] | Scroll speed (+=right/up, -=left/down) |
+| `_ScrollDistance` | Range | 1.0 | [0.1, 5.0] | Distance per cycle (UV units) |
+| `_PauseDuration` | Range | 0 | [0, 10] | Pause per cycle (seconds, 0=continuous) |
 
 ### Shader Variants (via `shader_feature_local`)
 - `_CIRCLE_SHAPE` — Circle LED
 - `_SQUARE_SHAPE` — Square LED
 - `_GLOW_ON` — Glow enabled
 - `UNITY_UI_ALPHACLIP` — Alpha clip enabled
+- `_MARQUEE_ON` — Marquee scrolling enabled
 
 **Note**: If both `_CIRCLE_SHAPE` and `_SQUARE_SHAPE` are enabled, circle takes priority (as defined in the `#if/#elif` chain).
 
 ---
 
-## 4. Rendering State (v1.1)
+## 4. Rendering State (v1.2)
 
 ```
 Queue:    Geometry (Opaque)
@@ -151,7 +197,26 @@ Panel is fully opaque. Glow via color blending on opaque surface — no alpha tr
 
 Implemented with 5 foldable sections, shape dropdown, and all v1.1 properties exposed.
 
-### 5.2 [P1] Pre-configured Materials
+### 5.2 [✅ DONE] VPM 发布支持
+**Files**: `docs/index.json`, `build_package.ps1`
+
+- `docs/index.json` — VPM 仓库清单，通过 GitHub Pages 托管
+- `build_package.ps1` — 打包脚本，输出 ZIP 到 `Builds/` 目录
+- VCC 用户可通过添加 VPM 仓库 URL 直接安装
+- 发布流程：打包 → GitHub Release → 上传 ZIP → 更新 index.json
+
+### 5.3 [✅ DONE] LED 走马灯 (Marquee)
+**Files**: `LEDMatrix.shader`, `Editor/LEDMatrixShaderGUI.cs`
+
+Implemented with:
+- Scroll direction dropdown (Horizontal / Vertical)
+- Unified speed parameter (sign controls direction)
+- Distance-driven scrolling with configurable pause between cycles
+- Independent toggle for enabling/disabling marquee
+- New foldable section "📜 走马灯 (Marquee)" in Material Inspector
+- Scroll offset accumulates on top of manual `_ImageOffset`
+
+### 5.4 [P1] Pre-configured Materials
 **Directory**: `Materials/`
 
 Create `.mat` files with common presets:
@@ -163,7 +228,7 @@ Create `.mat` files with common presets:
 | `LEDMatrix_Retro16.mat` | 16 | 0.55 | On (high) | Retro neon |
 | `LEDMatrix_NoGlow.mat` | 32 | 0.7 | Off | Clean dot-matrix |
 
-### 5.3 [P1] Sample Textures
+### 5.5 [P1] Sample Textures
 **Directory**: `Textures/`
 
 Create or include sample textures for testing:
@@ -171,7 +236,7 @@ Create or include sample textures for testing:
 - Simple logo/graphic
 - Grid test pattern
 
-### 5.4 [P2] Demo Scene
+### 5.6 [P2] Demo Scene
 **Directory**: `Scenes/`
 
 Create a simple Unity scene showing:
@@ -181,7 +246,7 @@ Create a simple Unity scene showing:
 
 **Note**: Demo scene requires Unity to create properly (.unity files are binary-like YAML). This is lowest priority.
 
-### 5.5 [P2] Mobile/VRChat Performance Optimization
+### 5.7 [P2] Mobile/VRChat Performance Optimization
 Potential optimizations for VRChat:
 
 - **LOD variant**: If grid resolution is very high (≥128), consider a simplified version
@@ -191,7 +256,7 @@ Potential optimizations for VRChat:
 
 ---
 
-## 6. VRChat Compatibility Notes (v1.1)
+## 6. VRChat Compatibility Notes (v1.2)
 
 - ✅ Built-in pipeline — fully compatible
 - ✅ Opaque queue (Geometry) — works in both World and Avatar
@@ -207,15 +272,20 @@ Potential optimizations for VRChat:
 LED点阵材质/
 ├── AI_DEV_SPEC.md                  ← AI-readable dev spec
 ├── README.md                       ← User manual
-├── LEDMatrix.shader                ← Core shader (v1.1)
-├── package.json                    ← UPM package manifest
+├── LEDMatrix.shader                ← Core shader (v1.2)
+├── package.json                    ← UPM package manifest (com.zer0tsu.led-matrix-shader)
 ├── CHANGELOG.md                    ← Version history
 ├── LICENSE                         ← MIT License
+├── build_package.ps1               ← VPM 打包脚本 [✅ DONE]
+├── .gitignore                      ← Git 忽略规则
 ├── Editor/
 │   └── LEDMatrixShaderGUI.cs       ← Custom material inspector [✅ DONE]
+├── docs/
+│   └── index.json                  ← VPM 仓库清单 (GitHub Pages) [✅ DONE]
 ├── Materials/                      ← [TODO] Pre-configured materials
 ├── Textures/                       ← [TODO] Sample textures
-└── Scenes/                         ← [TODO] Demo scene
+├── Scenes/                         ← [TODO] Demo scene
+└── Builds/                         ← 本地打包输出 (gitignored)
 ```
 
 ---
@@ -223,14 +293,19 @@ LED点阵材质/
 ## 8. Development Progress Summary
 
 ```
-▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░  90%  Complete
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  94%  Complete
                        
 Core Shader Logic      ▓▓▓▓▓▓▓▓▓▓  100%
 Glow Effect            ▓▓▓▓▓▓▓▓▓▓  100%
 Shape Switching        ▓▓▓▓▓▓▓▓▓▓  100%
+Material Inspector GUI ▓▓▓▓▓▓▓▓▓▓  100%
+VPM Release Support    ▓▓▓▓▓▓▓▓▓▓  100%
+Marquee (走马灯)        ▓▓▓▓▓▓▓▓▓▓  100%
 Color Customization    ▓▓▓▓▓▓▓▓▓▓  100%
 Image Transform        ▓▓▓▓▓▓▓▓▓▓  100%
 Material GUI           ▓▓▓▓▓▓▓▓▓▓  100%
+VPM / Packaging        ▓▓▓▓▓▓▓▓▓▓  100%
+LED 走马灯 (Marquee)   ▓▓▓▓▓▓▓▓▓▓  100%  [NEW]
 ───────────────        
 Sample Materials       ░░░░░░░░░░░   0%
 Sample Textures        ░░░░░░░░░░░   0%
@@ -241,4 +316,4 @@ Performance Opt.       ░░░░░░░░░░░   0%
 ---
 
 *Generated from design review — 2026-06-26*
-*Last spec update: v1.1 — 2026-06-27*
+*Last spec update: v1.2 — 2026-06-29*

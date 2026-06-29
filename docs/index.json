@@ -6,11 +6,35 @@
   "packages": {
     "com.zer0tsu.led-matrix-shader": {
       "versions": {
+        "1.2.0": {
+          "name": "com.zer0tsu.led-matrix-shader",
+          "displayName": "LED Matrix Shader",
+          "version": "1.2.0",
+          "unity": "2022.3",
+          "description": "Built-in pipeline LED dot-matrix screen shader for VRChat. Features configurable grid resolution, LED shape (circle/square), glow effect with Gaussian falloff, customizable colors, and LED marquee scrolling.",
+          "url": "https://github.com/zeR0Tsu/led-matrix-shader/releases/download/v1.2.0/com.zer0tsu.led-matrix-shader-1.2.0.zip",
+          "author": {
+            "name": "zeR0Tsu",
+            "url": "https://github.com/zeR0Tsu"
+          },
+          "vpmDependencies": {},
+          "legacyPackages": [],
+          "legacyFolders": {},
+          "legacyFiles": [],
+          "keywords": [
+            "vrchat",
+            "shader",
+            "led",
+            "dot-matrix",
+            "built-in"
+          ],
+          "samples": []
+        },
         "1.0.0": {
           "name": "com.zer0tsu.led-matrix-shader",
           "displayName": "LED Matrix Shader",
           "version": "1.0.0",
-          "unity": "2019.4",
+          "unity": "2022.3",
           "description": "Built-in pipeline LED dot-matrix screen shader for VRChat. Features configurable grid resolution, LED shape (circle/square), glow effect with Gaussian falloff, and customizable colors.",
           "url": "https://github.com/zeR0Tsu/led-matrix-shader/releases/download/v1.0.0/com.zer0tsu.led-matrix-shader-1.0.0.zip",
           "author": {

@@ -26,6 +26,11 @@ public class LEDMatrixShaderGUI : ShaderGUI
     private MaterialProperty _glowRadius;
     private MaterialProperty _clip;
     private MaterialProperty _clipThreshold;
+    private MaterialProperty _marqueeEnabled;
+    private MaterialProperty _marqueeDirection;
+    private MaterialProperty _scrollSpeed;
+    private MaterialProperty _scrollDistance;
+    private MaterialProperty _pauseDuration;
 
     private MaterialEditor _editor;
 
@@ -35,6 +40,7 @@ public class LEDMatrixShaderGUI : ShaderGUI
     private static bool FoldoutColor   = true;
     private static bool FoldoutGlow    = true;
     private static bool FoldoutAlpha   = false;
+    private static bool FoldoutMarquee = false;
 
     // ── Entry point ───────────────────────────────────────────
     public override void OnGUI(MaterialEditor materialEditor, MaterialProperty[] properties)
@@ -123,6 +129,24 @@ public class LEDMatrixShaderGUI : ShaderGUI
             EditorGUI.indentLevel--;
         }
 
+        // ═══════════════════════════════════════════════════════
+        //  Section: 走马灯 (Marquee)
+        // ═══════════════════════════════════════════════════════
+        FoldoutMarquee = DrawFoldoutHeader("📜 走马灯 (Marquee)", FoldoutMarquee);
+        if (FoldoutMarquee)
+        {
+            EditorGUI.indentLevel++;
+            _editor.ShaderProperty(_marqueeEnabled, "启用走马灯");
+            if (_marqueeEnabled.floatValue > 0.5f)
+            {
+                DrawMarqueeDirectionDropdown();
+                _editor.ShaderProperty(_scrollSpeed,    "滚动速度 (Speed)");
+                _editor.ShaderProperty(_scrollDistance, "滚动距离 (Distance)");
+                _editor.ShaderProperty(_pauseDuration,  "暂停时长 (Pause)");
+            }
+            EditorGUI.indentLevel--;
+        }
+
         EditorGUILayout.Space(4);
     }
 
@@ -164,6 +188,11 @@ public class LEDMatrixShaderGUI : ShaderGUI
         _glowRadius     = FindProperty("_GlowRadius",     props);
         _clip           = FindProperty("_Clip",           props);
         _clipThreshold  = FindProperty("_ClipThreshold",  props);
+        _marqueeEnabled = FindProperty("_MarqueeEnabled", props);
+        _marqueeDirection = FindProperty("_MarqueeDirection", props);
+        _scrollSpeed    = FindProperty("_ScrollSpeed",    props);
+        _scrollDistance = FindProperty("_ScrollDistance", props);
+        _pauseDuration  = FindProperty("_PauseDuration",  props);
     }
 
     private void DrawShapeDropdown()
@@ -194,6 +223,19 @@ public class LEDMatrixShaderGUI : ShaderGUI
                     mat.EnableKeyword("_SQUARE_SHAPE");
                 }
             }
+        }
+    }
+
+    private void DrawMarqueeDirectionDropdown()
+    {
+        int currentDir = _marqueeDirection.floatValue < 0.5f ? 0 : 1;
+
+        EditorGUI.BeginChangeCheck();
+        int newDir = EditorGUILayout.Popup("滚动方向 (Direction)", currentDir,
+            new[] { "↔ 水平 (Horizontal)", "↕ 垂直 (Vertical)" });
+        if (EditorGUI.EndChangeCheck())
+        {
+            _marqueeDirection.floatValue = newDir;
         }
     }
 

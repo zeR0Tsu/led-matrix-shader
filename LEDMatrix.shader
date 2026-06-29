@@ -29,6 +29,13 @@ Shader "zeR0Tsu/LEDMatrix"
         [Header(Alpha)]
         [Toggle(UNITY_UI_ALPHACLIP)] _Clip ("Alpha Clip", Float) = 0
         _ClipThreshold ("Clip Threshold", Range(0.0, 1.0)) = 0.1
+
+        [Header(Marquee)]
+        [Toggle(_MARQUEE_ON)] _MarqueeEnabled ("启用走马灯 (Enable Marquee)", Float) = 0
+        _MarqueeDirection ("走马灯方向 (Direction)", Float) = 0
+        _ScrollSpeed ("滚动速度 (Scroll Speed)", Float) = 1.0
+        _ScrollDistance ("滚动距离 (Scroll Distance)", Range(0.1, 5.0)) = 1.0
+        _PauseDuration ("暂停时长 (Pause Duration)", Range(0, 10)) = 0
     }
 
     SubShader
@@ -54,6 +61,7 @@ Shader "zeR0Tsu/LEDMatrix"
             #pragma shader_feature_local _SQUARE_SHAPE
             #pragma shader_feature_local _GLOW_ON
             #pragma shader_feature_local UNITY_UI_ALPHACLIP
+            #pragma shader_feature_local _MARQUEE_ON
             #include "UnityCG.cginc"
 
             struct appdata
@@ -83,6 +91,10 @@ Shader "zeR0Tsu/LEDMatrix"
             float _GlowIntensity;
             float _GlowRadius;
             float _ClipThreshold;
+            float _MarqueeDirection;
+            float _ScrollSpeed;
+            float _ScrollDistance;
+            float _PauseDuration;
 
             v2f vert(appdata v)
             {
@@ -107,6 +119,31 @@ Shader "zeR0Tsu/LEDMatrix"
                 uv += 0.5;
                 uv += _ImageOffset;
                 return uv;
+            }
+
+            // 走马灯偏移：距离驱动间歇循环
+            float2 GetMarqueeOffset()
+            {
+                float2 offset = 0;
+#if _MARQUEE_ON
+                float speed = abs(_ScrollSpeed);
+                if (speed > 0.0001)
+                {
+                    float scrollTime = _ScrollDistance / speed;
+                    float period = scrollTime + _PauseDuration;
+                    float totalTime = _Time.y;
+                    float cycleTime = fmod(totalTime, period);
+                    float scrollOffset = (cycleTime < scrollTime)
+                        ? cycleTime * speed          // 滚动阶段
+                        : _ScrollDistance;           // 暂停阶段
+                    scrollOffset *= (_ScrollSpeed > 0) ? 1.0 : -1.0;
+                    if (_MarqueeDirection < 0.5)     // 0 = 水平
+                        offset.x = scrollOffset;
+                    else                              // 1 = 垂直
+                        offset.y = scrollOffset;
+                }
+#endif
+                return offset;
             }
 
             // Luminance helper
@@ -137,6 +174,7 @@ Shader "zeR0Tsu/LEDMatrix"
 
                 // --- 2. 在单元中心采样图片（应用图片独立变换，最近邻风格） ---
                 float2 sampleUV = TransformImageUV(cellCenter);
+                sampleUV += GetMarqueeOffset();   // 走马灯滚动偏移
                 fixed4 ledColor = tex2D(_MainTex, sampleUV);
 
                 // --- 3. 计算到单元中心的距离（以网格单元为归一化单位, 0~0.5） ---
@@ -189,6 +227,7 @@ Shader "zeR0Tsu/LEDMatrix"
                             float2 neighborIndex = cellIndex + float2(dx, dy);
                             float2 neighborCenter = (neighborIndex + 0.5) / res;
                             float2 nSampleUV = TransformImageUV(neighborCenter);
+                            nSampleUV += GetMarqueeOffset();   // 走马灯偏移同步
                             fixed4 nColor = tex2D(_MainTex, nSampleUV);
                             float3 nTinted = nColor.rgb * _LEDColor.rgb;
                             if (Luminance(nTinted) > _OnThreshold)
